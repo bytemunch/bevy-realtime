@@ -1,4 +1,3 @@
-pub mod broadcast;
 pub mod channel;
 pub mod client;
 pub mod message;
@@ -13,7 +12,8 @@ use bevy::{
 };
 use bevy_crossbeam_event::{CrossbeamEventApp, CrossbeamEventSender};
 use channel::{
-    ChannelBuilder, ChannelManager, ChannelStateCallbackEvent, PresenceStateCallbackEvent,
+    BroadcastCallbackEvent, ChannelBuilder, ChannelManager, ChannelStateCallbackEvent,
+    PresenceStateCallbackEvent,
 };
 use client::{
     ChannelCallbackEvent, ClientBuilder, ClientManager, ConnectionState, NextMessageError,
@@ -39,6 +39,7 @@ fn build_channels(
     mut client: ResMut<Client>,
     presence_state_callback_event_sender: Res<CrossbeamEventSender<PresenceStateCallbackEvent>>,
     channel_state_callback_event_sender: Res<CrossbeamEventSender<ChannelStateCallbackEvent>>,
+    broadcast_callback_event_sender: Res<CrossbeamEventSender<BroadcastCallbackEvent>>,
 ) {
     for (e, c) in q.iter_mut() {
         commands.entity(e).remove::<BevyChannelBuilder>();
@@ -47,6 +48,7 @@ fn build_channels(
             &mut client.0,
             presence_state_callback_event_sender.clone(),
             channel_state_callback_event_sender.clone(),
+            broadcast_callback_event_sender.clone(),
         );
 
         channel.subscribe().unwrap();
@@ -114,6 +116,7 @@ impl Plugin for RealtimePlugin {
         .add_crossbeam_event::<ChannelCallbackEvent>()
         .add_crossbeam_event::<PresenceStateCallbackEvent>()
         .add_crossbeam_event::<ChannelStateCallbackEvent>()
+        .add_crossbeam_event::<BroadcastCallbackEvent>()
         .add_systems(PreStartup, (setup,))
         .add_systems(
             Update,
@@ -135,6 +138,7 @@ fn run_callbacks(
     mut channel_evr: EventReader<ChannelCallbackEvent>,
     mut presence_evr: EventReader<PresenceStateCallbackEvent>,
     mut channel_state_evr: EventReader<ChannelStateCallbackEvent>,
+    mut broadcast_evr: EventReader<BroadcastCallbackEvent>,
 ) {
     for ev in channel_evr.read() {
         let (callback, builder) = ev.0.clone();
@@ -147,6 +151,11 @@ fn run_callbacks(
     }
 
     for ev in channel_state_evr.read() {
+        let (callback, state) = ev.0.clone();
+        commands.run_system_with_input(callback, state);
+    }
+
+    for ev in broadcast_evr.read() {
         let (callback, state) = ev.0.clone();
         commands.run_system_with_input(callback, state);
     }

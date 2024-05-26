@@ -30,7 +30,10 @@ struct CdcCallback(
 );
 
 #[derive(Clone)]
-struct BroadcastCallback(Arc<dyn Fn(&HashMap<String, Value>) + Send + Sync>);
+struct BroadcastCallback(SystemId<HashMap<String, Value>>);
+
+#[derive(Event, Clone)]
+pub struct BroadcastCallbackEvent(pub (SystemId<HashMap<String, Value>>, HashMap<String, Value>));
 
 /// Channel states
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -116,6 +119,7 @@ pub struct RealtimeChannel {
     manager_rx: Receiver<ChannelManagerMessage>,
     presence_state_callback_event_sender: CrossbeamEventSender<PresenceStateCallbackEvent>,
     channel_state_callback_event_sender: CrossbeamEventSender<ChannelStateCallbackEvent>,
+    broadcast_callback_event_sender: CrossbeamEventSender<BroadcastCallbackEvent>,
 }
 
 // TODO channel options with broadcast + presence settings
@@ -297,7 +301,8 @@ impl RealtimeChannel {
             Payload::Broadcast(payload) => {
                 if let Some(callbacks) = self.broadcast_callbacks.get_mut(&payload.event) {
                     for cb in callbacks {
-                        cb.0(&payload.payload);
+                        self.broadcast_callback_event_sender
+                            .send(BroadcastCallbackEvent((cb.0, payload.payload.clone())));
                     }
                 }
             }
@@ -436,7 +441,7 @@ impl ChannelBuilder {
     pub fn on_broadcast(
         &mut self,
         event: impl Into<String>,
-        callback: impl Fn(&HashMap<String, Value>) + 'static + Send + Sync,
+        callback: SystemId<HashMap<String, Value>>,
     ) -> &mut Self {
         let event: String = event.into();
 
@@ -447,7 +452,7 @@ impl ChannelBuilder {
         self.broadcast_callbacks
             .get_mut(&event)
             .unwrap_or(&mut vec![])
-            .push(BroadcastCallback(Arc::new(callback)));
+            .push(BroadcastCallback(callback));
 
         self
     }
@@ -461,6 +466,7 @@ impl ChannelBuilder {
         client: &ClientManager,
         presence_state_callback_event_sender: CrossbeamEventSender<PresenceStateCallbackEvent>,
         channel_state_callback_event_sender: CrossbeamEventSender<ChannelStateCallbackEvent>,
+        broadcast_callback_event_sender: CrossbeamEventSender<BroadcastCallbackEvent>,
     ) -> ChannelManager {
         let manager_channel = unbounded();
 
@@ -484,6 +490,7 @@ impl ChannelBuilder {
                 presence: Presence::from_channel_builder(self.presence_callbacks.clone()),
                 presence_state_callback_event_sender,
                 channel_state_callback_event_sender,
+                broadcast_callback_event_sender,
             })
             .unwrap();
 

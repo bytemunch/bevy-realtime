@@ -2,24 +2,12 @@ use std::{collections::HashMap, time::Duration};
 
 use bevy::{ecs::system::SystemId, prelude::*, time::common_conditions::on_timer};
 use bevy_realtime::{
-    broadcast::bevy::{BroadcastEventApp, BroadcastForwarder, BroadcastPayloadEvent},
     channel::{ChannelBuilder, ChannelState},
     client_ready,
     message::payload::{BroadcastConfig, BroadcastPayload},
     BevyChannelBuilder, BuildChannel, Channel, Client, RealtimePlugin,
 };
 use serde_json::Value;
-
-#[derive(Event, Debug, Default, Clone)]
-pub struct ExBroadcastEvent {
-    payload: HashMap<String, Value>,
-}
-
-impl BroadcastPayloadEvent for ExBroadcastEvent {
-    fn new(payload: HashMap<String, Value>) -> Self {
-        Self { payload }
-    }
-}
 
 fn main() {
     let mut app = App::new();
@@ -32,15 +20,11 @@ fn main() {
         .add_systems(Startup, (setup,))
         .add_systems(
             Update,
-            ((
-                (send_every_second, test_get_channel_state)
-                    .run_if(on_timer(Duration::from_secs(1))),
-                evr_broadcast,
-            )
+            (((send_every_second, test_get_channel_state)
+                .run_if(on_timer(Duration::from_secs(1))),)
                 .chain()
                 .run_if(client_ready),),
-        )
-        .add_broadcast_event::<ExBroadcastEvent, BevyChannelBuilder>();
+        );
 
     app.run()
 }
@@ -57,31 +41,33 @@ fn setup(world: &mut World) {
 
     let test_callback = world.register_system(get_channel_state);
     world.insert_resource(TestCallback(test_callback));
+    let bc_cb = world.register_system(broadcast_callback);
+    world.insert_resource(MyBroadcastCallback(bc_cb));
 
     println!("setup s1 finished");
 }
 
-fn build_channel_callback(mut channel_builder: In<ChannelBuilder>, mut commands: Commands) {
+#[derive(Resource)]
+struct MyBroadcastCallback(pub SystemId<HashMap<String, Value>>);
+
+fn build_channel_callback(
+    mut channel_builder: In<ChannelBuilder>,
+    mut commands: Commands,
+    bc_cb: Res<MyBroadcastCallback>,
+) {
     println!("channel setup s2 ");
     channel_builder
         .topic("test")
         .set_broadcast_config(BroadcastConfig {
             broadcast_self: true,
             ack: false,
-        });
+        })
+        .on_broadcast("test", bc_cb.0);
 
     let mut c = commands.spawn(BevyChannelBuilder(channel_builder.0));
 
-    c.insert(BroadcastForwarder::<ExBroadcastEvent>::new("test".into()));
-
     c.insert(BuildChannel);
     println!("channel setup s2 finished");
-}
-
-fn evr_broadcast(mut evr: EventReader<ExBroadcastEvent>) {
-    for ev in evr.read() {
-        println!("Broadcast got! {:?}", ev.payload);
-    }
 }
 
 #[derive(Resource, Deref)]
@@ -109,4 +95,8 @@ fn send_every_second(q_channel: Query<&Channel>) {
         })
         .unwrap();
     }
+}
+
+fn broadcast_callback(recv: In<HashMap<String, Value>>) {
+    println!("GOT BC: {:?}", *recv);
 }
