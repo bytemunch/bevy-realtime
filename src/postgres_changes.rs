@@ -17,13 +17,13 @@ pub mod bevy {
         fn new(payload: PostgresChangesPayload) -> Self;
     }
 
-    pub trait PostresEventApp {
+    pub trait PostgresEventApp {
         fn add_postgres_event<E: Event + PostgresPayloadEvent + Clone, F: Component>(
             &mut self,
         ) -> &mut Self;
     }
 
-    impl PostresEventApp for App {
+    impl PostgresEventApp for App {
         fn add_postgres_event<E: Event + PostgresPayloadEvent + Clone, F: Component>(
             &mut self,
         ) -> &mut Self {

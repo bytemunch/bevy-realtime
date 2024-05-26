@@ -7,7 +7,7 @@ use bevy_realtime::{
         payload::{PostgresChangesEvent, PostgresChangesPayload},
         postgres_change_filter::PostgresChangeFilter,
     },
-    postgres_changes::bevy::{PostgresForwarder, PostgresPayloadEvent, PostresEventApp as _},
+    postgres_changes::bevy::{PostgresEventApp as _, PostgresForwarder, PostgresPayloadEvent},
     BevyChannelBuilder, BuildChannel, Client as RealtimeClient, RealtimePlugin,
 };
 
