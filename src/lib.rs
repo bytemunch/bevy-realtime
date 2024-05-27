@@ -1,3 +1,6 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
+
 pub mod channel;
 pub mod client;
 pub mod message;
@@ -36,7 +39,7 @@ pub struct BuildChannel;
 fn build_channels(
     mut commands: Commands,
     mut q: Query<(Entity, &mut BevyChannelBuilder), With<BuildChannel>>,
-    mut client: ResMut<Client>,
+    client: Res<Client>,
     presence_state_callback_event_sender: Res<CrossbeamEventSender<PresenceStateCallbackEvent>>,
     channel_state_callback_event_sender: Res<CrossbeamEventSender<ChannelStateCallbackEvent>>,
     broadcast_callback_event_sender: Res<CrossbeamEventSender<BroadcastCallbackEvent>>,
@@ -47,7 +50,7 @@ fn build_channels(
         commands.entity(e).remove::<BevyChannelBuilder>();
 
         let channel = c.build(
-            &mut client.0,
+            &client.0,
             presence_state_callback_event_sender.clone(),
             channel_state_callback_event_sender.clone(),
             broadcast_callback_event_sender.clone(),
@@ -160,7 +163,7 @@ fn run_callbacks(
     }
 
     for ev in channel_state_evr.read() {
-        let (callback, input) = ev.0.clone();
+        let (callback, input) = ev.0;
         commands.run_system_with_input(callback, input);
     }
 
@@ -194,7 +197,7 @@ pub fn client_ready(
     }
 
     for ev in evr.read() {
-        *last_state = ev.clone();
+        *last_state = *ev;
     }
 
     *last_state == ConnectionState::Open

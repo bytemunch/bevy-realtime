@@ -225,7 +225,7 @@ impl RealtimeChannel {
     fn send(&mut self, message: RealtimeMessage) -> Result<(), SendError<RealtimeMessage>> {
         // inject channel topic to message here
         let mut message = message.clone();
-        message.topic = self.topic.clone();
+        message.topic.clone_from(&self.topic);
 
         if self.connection_state == ChannelState::Leaving {
             return Err(SendError(message));
@@ -248,7 +248,7 @@ impl RealtimeChannel {
         &mut self,
         access_token: String,
     ) -> Result<(), SendError<RealtimeMessage>> {
-        self.join_payload.access_token = access_token.clone();
+        self.join_payload.access_token.clone_from(&access_token);
 
         if self.connection_state != ChannelState::Joined {
             return Ok(());
