@@ -23,20 +23,22 @@ use crate::{
 
 use super::client::Client;
 use crate::presence::{Presence, PresenceCallback, PresenceEvent, PresenceState};
+use std::fmt::Debug;
 use std::{collections::HashMap, error::Error};
-use std::{fmt::Debug, sync::Arc};
-
-#[derive(Clone)]
-struct CdcCallback(
-    PostgresChangeFilter,
-    Arc<dyn Fn(&PostgresChangesPayload) + Send + Sync>,
-);
 
 #[derive(Clone)]
 struct BroadcastCallback(SystemId<HashMap<String, Value>>);
 
 #[derive(Event, Clone)]
 pub struct BroadcastCallbackEvent(pub (SystemId<HashMap<String, Value>>, HashMap<String, Value>));
+
+#[derive(Clone)]
+struct PostgresChangesCallback(PostgresChangeFilter, SystemId<PostgresChangesPayload>);
+
+#[derive(Event, Clone)]
+pub struct PostgresChangesCallbackEvent(
+    pub (SystemId<PostgresChangesPayload>, PostgresChangesPayload),
+);
 
 /// Channel states
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -113,7 +115,7 @@ pub struct RealtimeChannel {
     pub(crate) topic: String,
     pub(crate) connection_state: ChannelState,
     pub(crate) id: Uuid,
-    cdc_callbacks: HashMap<PostgresChangesEvent, Vec<CdcCallback>>,
+    postgres_changes_callbacks: HashMap<PostgresChangesEvent, Vec<PostgresChangesCallback>>,
     broadcast_callbacks: HashMap<String, Vec<BroadcastCallback>>,
     join_payload: JoinPayload,
     presence: Presence,
@@ -123,6 +125,7 @@ pub struct RealtimeChannel {
     presence_state_callback_event_sender: CrossbeamEventSender<PresenceStateCallbackEvent>,
     channel_state_callback_event_sender: CrossbeamEventSender<ChannelStateCallbackEvent>,
     broadcast_callback_event_sender: CrossbeamEventSender<BroadcastCallbackEvent>,
+    postgres_changes_callback_event_sender: CrossbeamEventSender<PostgresChangesCallbackEvent>,
 }
 
 // TODO channel options with broadcast + presence settings
@@ -279,25 +282,31 @@ impl RealtimeChannel {
             Payload::PostgresChanges(payload) => {
                 let event = &payload.data.change_type;
 
-                for cdc_callback in self.cdc_callbacks.get_mut(event).unwrap_or(&mut vec![]) {
-                    let filter = &cdc_callback.0;
+                for callback in self
+                    .postgres_changes_callbacks
+                    .get_mut(event)
+                    .unwrap_or(&mut vec![])
+                {
+                    let filter = &callback.0;
 
                     // TODO REFAC pointless message clones when not using result; filter.check
                     // should borrow and return bool/result
                     if let Some(_message) = filter.check(message.clone()) {
-                        cdc_callback.1(&payload);
+                        self.postgres_changes_callback_event_sender
+                            .send(PostgresChangesCallbackEvent((callback.1, payload.clone())));
                     }
                 }
 
-                for cdc_callback in self
-                    .cdc_callbacks
+                for callback in self
+                    .postgres_changes_callbacks
                     .get_mut(&PostgresChangesEvent::All)
                     .unwrap_or(&mut vec![])
                 {
-                    let filter = &cdc_callback.0;
+                    let filter = &callback.0;
 
                     if let Some(_message) = filter.check(message.clone()) {
-                        cdc_callback.1(&payload);
+                        self.postgres_changes_callback_event_sender
+                            .send(PostgresChangesCallbackEvent((callback.1, payload.clone())));
                     }
                 }
             }
@@ -354,7 +363,7 @@ pub struct ChannelBuilder {
     presence: PresenceConfig,
     id: Uuid,
     postgres_changes: Vec<PostgresChange>,
-    cdc_callbacks: HashMap<PostgresChangesEvent, Vec<CdcCallback>>,
+    cdc_callbacks: HashMap<PostgresChangesEvent, Vec<PostgresChangesCallback>>,
     broadcast_callbacks: HashMap<String, Vec<BroadcastCallback>>,
     presence_callbacks: HashMap<PresenceEvent, Vec<PresenceCallback>>,
     tx: Sender<RealtimeMessage>,
@@ -399,7 +408,7 @@ impl ChannelBuilder {
         &mut self,
         event: PostgresChangesEvent,
         filter: PostgresChangeFilter,
-        callback: impl Fn(&PostgresChangesPayload) + 'static + Send + Sync,
+        callback: SystemId<PostgresChangesPayload>,
     ) -> &mut Self {
         self.postgres_changes.push(PostgresChange {
             event: event.clone(),
@@ -415,7 +424,7 @@ impl ChannelBuilder {
         self.cdc_callbacks
             .get_mut(&event)
             .unwrap_or(&mut vec![])
-            .push(CdcCallback(filter, Arc::new(callback)));
+            .push(PostgresChangesCallback(filter, callback));
 
         self
     }
@@ -470,13 +479,14 @@ impl ChannelBuilder {
         channel_state_callback_event_sender: CrossbeamEventSender<ChannelStateCallbackEvent>,
         broadcast_callback_event_sender: CrossbeamEventSender<BroadcastCallbackEvent>,
         presence_callback_event_sender: CrossbeamEventSender<PresenceCallbackEvent>,
+        postgres_changes_callback_event_sender: CrossbeamEventSender<PostgresChangesCallbackEvent>,
     ) -> ChannelManager {
         let manager_channel = unbounded();
 
         client
             .add_channel(RealtimeChannel {
                 topic: self.topic.clone(),
-                cdc_callbacks: self.cdc_callbacks.clone(),
+                postgres_changes_callbacks: self.cdc_callbacks.clone(),
                 broadcast_callbacks: self.broadcast_callbacks.clone(),
                 tx: self.tx.clone(),
                 manager_rx: manager_channel.1,
@@ -497,6 +507,7 @@ impl ChannelBuilder {
                 presence_state_callback_event_sender,
                 channel_state_callback_event_sender,
                 broadcast_callback_event_sender,
+                postgres_changes_callback_event_sender,
             })
             .unwrap();
 

@@ -1,7 +1,6 @@
 pub mod channel;
 pub mod client;
 pub mod message;
-pub mod postgres_changes;
 pub mod presence;
 
 use std::{thread::sleep, time::Duration};
@@ -13,7 +12,7 @@ use bevy::{
 use bevy_crossbeam_event::{CrossbeamEventApp, CrossbeamEventSender};
 use channel::{
     BroadcastCallbackEvent, ChannelBuilder, ChannelManager, ChannelStateCallbackEvent,
-    PresenceStateCallbackEvent,
+    PostgresChangesCallbackEvent, PresenceStateCallbackEvent,
 };
 use client::{
     ChannelCallbackEvent, ClientBuilder, ClientManager, ConnectionState, NextMessageError,
@@ -42,6 +41,7 @@ fn build_channels(
     channel_state_callback_event_sender: Res<CrossbeamEventSender<ChannelStateCallbackEvent>>,
     broadcast_callback_event_sender: Res<CrossbeamEventSender<BroadcastCallbackEvent>>,
     presence_callback_event_sender: Res<CrossbeamEventSender<PresenceCallbackEvent>>,
+    postgres_changes_callback_event_sender: Res<CrossbeamEventSender<PostgresChangesCallbackEvent>>,
 ) {
     for (e, c) in q.iter_mut() {
         commands.entity(e).remove::<BevyChannelBuilder>();
@@ -52,6 +52,7 @@ fn build_channels(
             channel_state_callback_event_sender.clone(),
             broadcast_callback_event_sender.clone(),
             presence_callback_event_sender.clone(),
+            postgres_changes_callback_event_sender.clone(),
         );
 
         channel.subscribe().unwrap();
@@ -121,6 +122,7 @@ impl Plugin for RealtimePlugin {
         .add_crossbeam_event::<ChannelStateCallbackEvent>()
         .add_crossbeam_event::<BroadcastCallbackEvent>()
         .add_crossbeam_event::<PresenceCallbackEvent>()
+        .add_crossbeam_event::<PostgresChangesCallbackEvent>()
         .add_systems(PreStartup, (setup,))
         .add_systems(
             Update,
@@ -144,6 +146,7 @@ fn run_callbacks(
     mut channel_state_evr: EventReader<ChannelStateCallbackEvent>,
     mut broadcast_evr: EventReader<BroadcastCallbackEvent>,
     mut presence_evr: EventReader<PresenceCallbackEvent>,
+    mut postgres_evr: EventReader<PostgresChangesCallbackEvent>,
 ) {
     // TODO this is crying out for a macro lol
     for ev in channel_evr.read() {
@@ -167,6 +170,11 @@ fn run_callbacks(
     }
 
     for ev in presence_evr.read() {
+        let (callback, input) = ev.0.clone();
+        commands.run_system_with_input(callback, input);
+    }
+
+    for ev in postgres_evr.read() {
         let (callback, input) = ev.0.clone();
         commands.run_system_with_input(callback, input);
     }

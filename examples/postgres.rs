@@ -1,25 +1,15 @@
-use bevy::prelude::*;
+use bevy::{ecs::system::SystemId, prelude::*};
 use bevy_realtime::{
     channel::ChannelBuilder,
     message::{
         payload::{PostgresChangesEvent, PostgresChangesPayload},
         postgres_change_filter::PostgresChangeFilter,
     },
-    postgres_changes::bevy::{PostgresEventApp as _, PostgresForwarder, PostgresPayloadEvent},
     BevyChannelBuilder, BuildChannel, Client, RealtimePlugin,
 };
 
-#[allow(dead_code)]
-#[derive(Event, Debug, Clone)]
-pub struct ExPostgresEvent {
-    payload: PostgresChangesPayload,
-}
-
-impl PostgresPayloadEvent for ExPostgresEvent {
-    fn new(payload: PostgresChangesPayload) -> Self {
-        Self { payload }
-    }
-}
+#[derive(Resource, Deref)]
+struct OnChangeCallback(pub SystemId<PostgresChangesPayload>);
 
 fn main() {
     let mut app = App::new();
@@ -29,9 +19,7 @@ fn main() {
             "http://127.0.0.1:54321/realtime/v1".into(),
             std::env::var("SUPABASE_LOCAL_ANON_KEY").unwrap(),
         ),))
-        .add_systems(Startup, (setup,))
-        .add_systems(Update, (evr_postgres).chain())
-        .add_postgres_event::<ExPostgresEvent, BevyChannelBuilder>();
+        .add_systems(Startup, (setup,));
 
     app.run()
 }
@@ -39,30 +27,34 @@ fn main() {
 fn setup(world: &mut World) {
     world.spawn(Camera2dBundle::default());
 
-    let callback = world.register_system(build_channel_callback);
+    let build_channel_callback = world.register_system(build_channel_callback);
     let client = world.resource::<Client>();
-    client.channel(callback).unwrap();
+    client.channel(build_channel_callback).unwrap();
+
+    let on_change_callback = world.register_system(on_change_callback);
+    world.insert_resource(OnChangeCallback(on_change_callback));
 }
 
-fn build_channel_callback(mut channel_builder: In<ChannelBuilder>, mut commands: Commands) {
-    channel_builder.topic("test");
-
-    let mut channel = commands.spawn(BevyChannelBuilder(channel_builder.0));
-
-    channel.insert(PostgresForwarder::<ExPostgresEvent>::new(
+fn build_channel_callback(
+    mut channel_builder: In<ChannelBuilder>,
+    mut commands: Commands,
+    on_change_callback: Res<OnChangeCallback>,
+) {
+    channel_builder.topic("test").on_postgres_change(
         PostgresChangesEvent::All,
         PostgresChangeFilter {
             schema: "public".into(),
             table: Some("todos".into()),
             filter: None,
         },
-    ));
+        **on_change_callback,
+    );
+
+    let mut channel = commands.spawn(BevyChannelBuilder(channel_builder.0));
 
     channel.insert(BuildChannel);
 }
 
-fn evr_postgres(mut evr: EventReader<ExPostgresEvent>) {
-    for ev in evr.read() {
-        println!("Change got! {:?}", ev);
-    }
+fn on_change_callback(input: In<PostgresChangesPayload>) {
+    println!("Change got! {:?}", *input);
 }
