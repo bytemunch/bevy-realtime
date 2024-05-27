@@ -8,14 +8,17 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::client::ClientManager;
-use crate::message::{
-    payload::{
-        AccessTokenPayload, BroadcastConfig, BroadcastPayload, JoinConfig, JoinPayload, Payload,
-        PayloadStatus, PostgresChange, PostgresChangesEvent, PostgresChangesPayload,
-        PresenceConfig,
+use crate::{
+    message::{
+        payload::{
+            AccessTokenPayload, BroadcastConfig, BroadcastPayload, JoinConfig, JoinPayload,
+            Payload, PayloadStatus, PostgresChange, PostgresChangesEvent, PostgresChangesPayload,
+            PresenceConfig,
+        },
+        postgres_change_filter::PostgresChangeFilter,
+        realtime_message::{MessageEvent, RealtimeMessage},
     },
-    postgres_change_filter::PostgresChangeFilter,
-    realtime_message::{MessageEvent, RealtimeMessage},
+    presence::PresenceCallbackEvent,
 };
 
 use super::client::Client;
@@ -422,8 +425,7 @@ impl ChannelBuilder {
     pub fn on_presence(
         &mut self,
         event: PresenceEvent,
-        // TODO callback type alias
-        callback: impl Fn(String, PresenceState, PresenceState) + 'static + Send + Sync,
+        callback: SystemId<(String, PresenceState, PresenceState)>,
     ) -> &mut Self {
         if self.presence_callbacks.get_mut(&event).is_none() {
             self.presence_callbacks.insert(event.clone(), vec![]);
@@ -432,7 +434,7 @@ impl ChannelBuilder {
         self.presence_callbacks
             .get_mut(&event)
             .unwrap_or(&mut vec![])
-            .push(PresenceCallback(Arc::new(callback)));
+            .push(PresenceCallback(callback));
 
         self
     }
@@ -467,6 +469,7 @@ impl ChannelBuilder {
         presence_state_callback_event_sender: CrossbeamEventSender<PresenceStateCallbackEvent>,
         channel_state_callback_event_sender: CrossbeamEventSender<ChannelStateCallbackEvent>,
         broadcast_callback_event_sender: CrossbeamEventSender<BroadcastCallbackEvent>,
+        presence_callback_event_sender: CrossbeamEventSender<PresenceCallbackEvent>,
     ) -> ChannelManager {
         let manager_channel = unbounded();
 
@@ -487,7 +490,10 @@ impl ChannelBuilder {
                     },
                     access_token: self.access_token.clone(),
                 },
-                presence: Presence::from_channel_builder(self.presence_callbacks.clone()),
+                presence: Presence::from_channel_builder(
+                    self.presence_callbacks.clone(),
+                    presence_callback_event_sender,
+                ),
                 presence_state_callback_event_sender,
                 channel_state_callback_event_sender,
                 broadcast_callback_event_sender,

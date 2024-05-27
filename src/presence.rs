@@ -1,7 +1,11 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
+use bevy::{ecs::system::SystemId, prelude::*};
+use bevy_crossbeam_event::CrossbeamEventSender;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::Channel;
 
 /// Enum of presence event types
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
@@ -17,8 +21,14 @@ pub enum PresenceEvent {
 pub type RawPresenceState = HashMap<String, RawPresenceMetas>;
 
 #[derive(Clone)]
-pub(crate) struct PresenceCallback(
-    pub Arc<dyn Fn(String, PresenceState, PresenceState) + Send + Sync>,
+pub(crate) struct PresenceCallback(pub SystemId<(String, PresenceState, PresenceState)>);
+
+#[derive(Event, Clone)]
+pub struct PresenceCallbackEvent(
+    pub  (
+        SystemId<(String, PresenceState, PresenceState)>,
+        (String, PresenceState, PresenceState),
+    ),
 );
 //{
 //  abc123: {1: {foo: bar}, 2: {foo: baz} },
@@ -122,19 +132,21 @@ pub(crate) struct PresenceDiff {
     leaves: PresenceState,
 }
 
-#[derive(Default)]
 pub(crate) struct Presence {
     pub state: PresenceState,
     callbacks: HashMap<PresenceEvent, Vec<PresenceCallback>>,
+    presence_callback_event_sender: CrossbeamEventSender<PresenceCallbackEvent>,
 }
 
 impl Presence {
     pub(crate) fn from_channel_builder(
         callbacks: HashMap<PresenceEvent, Vec<PresenceCallback>>,
+        presence_callback_event_sender: CrossbeamEventSender<PresenceCallbackEvent>,
     ) -> Self {
         Self {
             state: PresenceState::default(),
             callbacks,
+            presence_callback_event_sender,
         }
     }
 
@@ -189,7 +201,11 @@ impl Presence {
                 .get_mut(&PresenceEvent::Sync)
                 .unwrap_or(&mut vec![])
             {
-                cb.0(id.clone(), prev_state.clone(), self.state.clone());
+                self.presence_callback_event_sender
+                    .send(PresenceCallbackEvent((
+                        cb.0,
+                        (id.clone(), prev_state.clone(), self.state.clone()),
+                    )));
             }
         }
     }
@@ -205,7 +221,11 @@ impl Presence {
                 .get_mut(&PresenceEvent::Join)
                 .unwrap_or(&mut vec![])
             {
-                cb.0(id.clone(), self.state.clone(), diff.clone().joins);
+                self.presence_callback_event_sender
+                    .send(PresenceCallbackEvent((
+                        cb.0,
+                        (id.clone(), self.state.clone(), diff.clone().joins),
+                    )));
             }
         }
 
@@ -215,7 +235,11 @@ impl Presence {
                 .get_mut(&PresenceEvent::Leave)
                 .unwrap_or(&mut vec![])
             {
-                cb.0(id.clone(), self.state.clone(), diff.clone().leaves);
+                self.presence_callback_event_sender
+                    .send(PresenceCallbackEvent((
+                        cb.0,
+                        (id.clone(), self.state.clone(), diff.clone().leaves),
+                    )));
             }
 
             self.state.0.remove(&id);
@@ -227,92 +251,25 @@ impl Presence {
     }
 }
 
-pub mod bevy {
-    use std::{collections::HashMap, marker::PhantomData};
+// State tracking
 
-    use bevy::prelude::*;
-    use bevy_crossbeam_event::{CrossbeamEventApp, CrossbeamEventSender};
-    use serde_json::Value;
+#[derive(Component)]
+pub struct PrescenceTrack {
+    pub payload: HashMap<String, Value>,
+}
 
-    use crate::{
-        client_ready,
-        presence::{PresenceEvent, PresenceState},
-        BevyChannelBuilder, Channel,
-    };
-
-    pub trait PresencePayloadEvent {
-        fn new(key: String, old_state: PresenceState, new_state: PresenceState) -> Self;
+pub fn update_presence_track(
+    q: Query<(&PrescenceTrack, &Channel), Or<(Changed<PrescenceTrack>, Added<Channel>)>>,
+) {
+    for (p, c) in q.iter() {
+        c.track(p.payload.clone()).unwrap();
     }
+}
 
-    pub trait AppExtend {
-        fn add_presence_event<E: Event + PresencePayloadEvent + Clone, F: Component>(
-            &mut self,
-        ) -> &mut Self;
-    }
-
-    impl AppExtend for App {
-        fn add_presence_event<E: Event + PresencePayloadEvent + Clone, F: Component>(
-            &mut self,
-        ) -> &mut Self {
-            self.add_crossbeam_event::<E>()
-                .add_systems(Update, (presence_forward::<E, F>,).run_if(client_ready))
-        }
-    }
-
-    #[derive(Component)]
-    pub struct PresenceForwarder<E: Event + PresencePayloadEvent> {
-        pub event: PresenceEvent,
-        spooky: PhantomData<E>,
-    }
-
-    impl<E: Event + PresencePayloadEvent> PresenceForwarder<E> {
-        pub fn new(event: PresenceEvent) -> PresenceForwarder<E> {
-            Self {
-                event,
-                spooky: PhantomData::<E>,
-            }
-        }
-    }
-
-    pub fn presence_forward<E: Event + PresencePayloadEvent + Clone, T: Component>(
-        mut commands: Commands,
-        mut q: Query<
-            (Entity, &mut BevyChannelBuilder, &PresenceForwarder<E>),
-            (Added<PresenceForwarder<E>>, With<T>),
-        >,
-        sender: Res<CrossbeamEventSender<E>>,
-    ) {
-        for (e, mut cb, event) in q.iter_mut() {
-            let s = sender.clone();
-            cb.0.on_presence(event.event.clone(), move |key, old, new| {
-                let ev = E::new(key, old, new);
-                s.send(ev);
-            });
-
-            commands.entity(e).remove::<PresenceForwarder<E>>();
-        }
-    }
-
-    // State tracking
-
-    #[derive(Component)]
-    pub struct PrescenceTrack {
-        pub payload: HashMap<String, Value>,
-    }
-
-    pub fn update_presence_track(
-        q: Query<(&PrescenceTrack, &Channel), Or<(Changed<PrescenceTrack>, Added<Channel>)>>,
-    ) {
-        for (p, c) in q.iter() {
-            c.track(p.payload.clone()).unwrap();
-        }
-    }
-
-    pub fn presence_untrack(q: Query<&Channel>, mut removed: RemovedComponents<PrescenceTrack>) {
-        for r in removed.read() {
-            if let Ok(c) = q.get(r) {
-                c.untrack().unwrap();
-            }
+pub fn presence_untrack(q: Query<&Channel>, mut removed: RemovedComponents<PrescenceTrack>) {
+    for r in removed.read() {
+        if let Ok(c) = q.get(r) {
+            c.untrack().unwrap();
         }
     }
 }
