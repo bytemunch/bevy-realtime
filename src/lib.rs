@@ -1,8 +1,9 @@
-pub mod broadcast;
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
+
 pub mod channel;
 pub mod client;
 pub mod message;
-pub mod postgres_changes;
 pub mod presence;
 
 use std::{thread::sleep, time::Duration};
@@ -13,13 +14,15 @@ use bevy::{
 };
 use bevy_crossbeam_event::{CrossbeamEventApp, CrossbeamEventSender};
 use channel::{
-    ChannelBuilder, ChannelManager, ChannelStateCallbackEvent, PresenceStateCallbackEvent,
+    BroadcastCallbackEvent, ChannelBuilder, ChannelManager, ChannelStateCallbackEvent,
+    PostgresChangesCallbackEvent, PresenceStateCallbackEvent,
 };
 use client::{
     ChannelCallbackEvent, ClientBuilder, ClientManager, ConnectionState, NextMessageError,
 };
+use presence::PresenceCallbackEvent;
 
-use crate::presence::bevy::{presence_untrack, update_presence_track};
+use crate::presence::{presence_untrack, update_presence_track};
 
 #[derive(Resource, Deref)]
 pub struct Client(pub ClientManager);
@@ -36,17 +39,23 @@ pub struct BuildChannel;
 fn build_channels(
     mut commands: Commands,
     mut q: Query<(Entity, &mut BevyChannelBuilder), With<BuildChannel>>,
-    mut client: ResMut<Client>,
+    client: Res<Client>,
     presence_state_callback_event_sender: Res<CrossbeamEventSender<PresenceStateCallbackEvent>>,
     channel_state_callback_event_sender: Res<CrossbeamEventSender<ChannelStateCallbackEvent>>,
+    broadcast_callback_event_sender: Res<CrossbeamEventSender<BroadcastCallbackEvent>>,
+    presence_callback_event_sender: Res<CrossbeamEventSender<PresenceCallbackEvent>>,
+    postgres_changes_callback_event_sender: Res<CrossbeamEventSender<PostgresChangesCallbackEvent>>,
 ) {
     for (e, c) in q.iter_mut() {
         commands.entity(e).remove::<BevyChannelBuilder>();
 
         let channel = c.build(
-            &mut client.0,
+            &client.0,
             presence_state_callback_event_sender.clone(),
             channel_state_callback_event_sender.clone(),
+            broadcast_callback_event_sender.clone(),
+            presence_callback_event_sender.clone(),
+            postgres_changes_callback_event_sender.clone(),
         );
 
         channel.subscribe().unwrap();
@@ -114,6 +123,9 @@ impl Plugin for RealtimePlugin {
         .add_crossbeam_event::<ChannelCallbackEvent>()
         .add_crossbeam_event::<PresenceStateCallbackEvent>()
         .add_crossbeam_event::<ChannelStateCallbackEvent>()
+        .add_crossbeam_event::<BroadcastCallbackEvent>()
+        .add_crossbeam_event::<PresenceCallbackEvent>()
+        .add_crossbeam_event::<PostgresChangesCallbackEvent>()
         .add_systems(PreStartup, (setup,))
         .add_systems(
             Update,
@@ -133,22 +145,41 @@ impl Plugin for RealtimePlugin {
 fn run_callbacks(
     mut commands: Commands,
     mut channel_evr: EventReader<ChannelCallbackEvent>,
-    mut presence_evr: EventReader<PresenceStateCallbackEvent>,
+    mut presence_state_evr: EventReader<PresenceStateCallbackEvent>,
     mut channel_state_evr: EventReader<ChannelStateCallbackEvent>,
+    mut broadcast_evr: EventReader<BroadcastCallbackEvent>,
+    mut presence_evr: EventReader<PresenceCallbackEvent>,
+    mut postgres_evr: EventReader<PostgresChangesCallbackEvent>,
 ) {
+    // TODO this is crying out for a macro lol
     for ev in channel_evr.read() {
-        let (callback, builder) = ev.0.clone();
-        commands.run_system_with_input(callback, builder);
+        let (callback, input) = ev.0.clone();
+        commands.run_system_with_input(callback, input);
     }
 
-    for ev in presence_evr.read() {
-        let (callback, state) = ev.0.clone();
-        commands.run_system_with_input(callback, state);
+    for ev in presence_state_evr.read() {
+        let (callback, input) = ev.0.clone();
+        commands.run_system_with_input(callback, input);
     }
 
     for ev in channel_state_evr.read() {
-        let (callback, state) = ev.0.clone();
-        commands.run_system_with_input(callback, state);
+        let (callback, input) = ev.0;
+        commands.run_system_with_input(callback, input);
+    }
+
+    for ev in broadcast_evr.read() {
+        let (callback, input) = ev.0.clone();
+        commands.run_system_with_input(callback, input);
+    }
+
+    for ev in presence_evr.read() {
+        let (callback, input) = ev.0.clone();
+        commands.run_system_with_input(callback, input);
+    }
+
+    for ev in postgres_evr.read() {
+        let (callback, input) = ev.0.clone();
+        commands.run_system_with_input(callback, input);
     }
 }
 
@@ -166,7 +197,7 @@ pub fn client_ready(
     }
 
     for ev in evr.read() {
-        *last_state = ev.clone();
+        *last_state = *ev;
     }
 
     *last_state == ConnectionState::Open

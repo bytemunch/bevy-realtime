@@ -549,7 +549,7 @@ impl Client {
 
     /// Use provided JWT to authorize future requests from this client and all channels
     pub fn set_auth(&mut self, access_token: String) {
-        self.access_token = access_token.clone();
+        self.access_token.clone_from(&access_token);
 
         for channel in self.channels.values_mut() {
             // TODO single source of data for access token
@@ -583,7 +583,7 @@ impl Client {
             Err(e) => debug!("client manager_recv error: {}", e),
         }
 
-        for (_id, channel) in &mut self.channels {
+        for channel in self.channels.values_mut() {
             match channel.manager_recv() {
                 Ok(()) => {}
                 Err(e) => debug!("channel manager_recv error: {}", e),
@@ -1089,7 +1089,7 @@ impl ClientBuilder {
         channel_callback_event_sender: CrossbeamEventSender<ChannelCallbackEvent>,
     ) -> Client {
         let (manager_tx, manager_rx) = unbounded();
-        let c = Client {
+        Client {
             headers: self.headers,
             params: self.params,
             heartbeat_interval: self.heartbeat_interval,
@@ -1118,9 +1118,7 @@ impl ClientBuilder {
             manager_rx,
             manager_tx,
             channel_callback_event_sender,
-        };
-
-        c
+        }
     }
 }
 
