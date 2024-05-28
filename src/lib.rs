@@ -8,10 +8,7 @@ pub mod presence;
 
 use std::{thread::sleep, time::Duration};
 
-use bevy::{
-    prelude::*,
-    tasks::{AsyncComputeTaskPool, Task},
-};
+use bevy::prelude::*;
 use bevy_crossbeam_event::{CrossbeamEventApp, CrossbeamEventSender};
 use channel::{
     BroadcastCallbackEvent, ChannelBuilder, ChannelManager, ChannelStateCallbackEvent,
@@ -63,15 +60,7 @@ fn build_channels(
     }
 }
 
-#[derive(Resource, Deref, DerefMut)]
-pub struct ClientTask(Task<()>);
-
 pub struct RealtimePlugin {
-    endpoint: String,
-    apikey: String,
-}
-#[derive(Resource)]
-pub struct RealtimeConfig {
     endpoint: String,
     apikey: String,
 }
@@ -82,63 +71,50 @@ impl RealtimePlugin {
     }
 }
 
-fn setup(
-    mut commands: Commands,
-    config: Res<RealtimeConfig>,
-    channel_callback_event_sender: Res<CrossbeamEventSender<ChannelCallbackEvent>>,
-) {
-    let pool = AsyncComputeTaskPool::get();
-
-    let endpoint = config.endpoint.clone();
-    let apikey = config.apikey.clone();
-    let mut client =
-        ClientBuilder::new(endpoint, apikey).build(channel_callback_event_sender.clone());
-
-    commands.insert_resource(Client(ClientManager::new(&client)));
-
-    let task = pool.spawn(async move {
-        client.connect().unwrap();
-        loop {
-            match client.next_message() {
-                Err(NextMessageError::WouldBlock) => {}
-                Ok(_) => {}
-                Err(e) => println!("{}", e),
-            }
-
-            // TODO find a sane sleep value
-            sleep(Duration::from_secs_f32(f32::MIN_POSITIVE));
-        }
-    });
-
-    commands.insert_resource(ClientTask(task));
-}
-
 impl Plugin for RealtimePlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(RealtimeConfig {
-            apikey: self.apikey.clone(),
-            endpoint: self.endpoint.clone(),
-        })
-        .add_crossbeam_event::<ConnectionState>()
-        .add_crossbeam_event::<ChannelCallbackEvent>()
-        .add_crossbeam_event::<PresenceStateCallbackEvent>()
-        .add_crossbeam_event::<ChannelStateCallbackEvent>()
-        .add_crossbeam_event::<BroadcastCallbackEvent>()
-        .add_crossbeam_event::<PresenceCallbackEvent>()
-        .add_crossbeam_event::<PostgresChangesCallbackEvent>()
-        .add_systems(PreStartup, (setup,))
-        .add_systems(
-            Update,
-            ((
-                //
-                update_presence_track,
-                presence_untrack,
-                build_channels,
-                run_callbacks,
-            )
-                .chain()
-                .run_if(client_ready),),
+        app.add_crossbeam_event::<ConnectionState>()
+            .add_crossbeam_event::<ChannelCallbackEvent>()
+            .add_crossbeam_event::<PresenceStateCallbackEvent>()
+            .add_crossbeam_event::<ChannelStateCallbackEvent>()
+            .add_crossbeam_event::<BroadcastCallbackEvent>()
+            .add_crossbeam_event::<PresenceCallbackEvent>()
+            .add_crossbeam_event::<PostgresChangesCallbackEvent>()
+            .add_systems(
+                Update,
+                ((
+                    //
+                    update_presence_track,
+                    presence_untrack,
+                    build_channels,
+                    run_callbacks,
+                )
+                    .chain()
+                    .run_if(client_ready),),
+            );
+
+        let mut client = ClientBuilder::new(self.endpoint.clone(), self.apikey.clone()).build(
+            app.world
+                .resource::<CrossbeamEventSender<ChannelCallbackEvent>>()
+                .clone(),
         );
+
+        app.insert_resource(Client(ClientManager::new(&client)));
+
+        // Start off thread client
+        std::thread::spawn(move || {
+            client.connect().unwrap();
+            loop {
+                match client.next_message() {
+                    Err(NextMessageError::WouldBlock) => {}
+                    Ok(_) => {}
+                    Err(e) => println!("{}", e),
+                }
+
+                // TODO find a sane sleep value
+                sleep(Duration::from_secs_f32(f32::MIN_POSITIVE));
+            }
+        });
     }
 }
 
