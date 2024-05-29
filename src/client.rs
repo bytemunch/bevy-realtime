@@ -526,7 +526,7 @@ impl Client {
         }
 
         loop {
-            match self.next_message() {
+            match self.step() {
                 Ok(channel_ids) => {
                     debug!(
                         "[Blocking Subscribe] Message forwarded to {:?}",
@@ -582,7 +582,7 @@ impl Client {
     }
 
     /// The main step function for driving the [RealtimeClient]
-    pub fn next_message(&mut self) -> Result<Vec<Uuid>, NextMessageError> {
+    pub fn step(&mut self) -> Result<Vec<Uuid>, NextMessageError> {
         // TODO run manager_recv fns until channels drained
         match self.manager_recv() {
             Ok(()) => {}
@@ -692,7 +692,7 @@ impl Client {
 
         // wait until inbound_rx is drained
         loop {
-            let recv = self.next_message();
+            let recv = self.step();
 
             if Err(NextMessageError::WouldBlock) == recv {
                 break;
@@ -700,7 +700,7 @@ impl Client {
         }
 
         loop {
-            let _ = self.next_message();
+            let _ = self.step();
 
             let mut all_channels_closed = true;
 

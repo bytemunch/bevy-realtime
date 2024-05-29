@@ -111,7 +111,7 @@ impl Plugin for RealtimePlugin {
         // Start off thread client
         let _thread = std::thread::spawn(move || {
             loop {
-                match client.next_message() {
+                match client.step() {
                     Err(NextMessageError::WouldBlock) => {}
                     Ok(_) => {}
                     Err(_e) => {} //error!("{}", _e),
