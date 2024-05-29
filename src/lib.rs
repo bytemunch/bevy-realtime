@@ -168,15 +168,10 @@ fn run_callbacks(
 pub fn client_ready(
     mut evr: EventReader<ConnectionState>,
     mut last_state: Local<ConnectionState>,
-    mut rate_limiter: Local<usize>,
     client: Res<Client>,
     sender: Res<CrossbeamEventSender<ConnectionState>>,
 ) -> bool {
-    *rate_limiter += 1;
-    if *rate_limiter % 30 == 0 {
-        *rate_limiter = 0;
-        client.connection_state(sender.clone()).unwrap_or(());
-    }
+    client.connection_state(sender.clone()).unwrap_or(());
 
     for ev in evr.read() {
         *last_state = *ev;
