@@ -36,6 +36,7 @@ fn setup(world: &mut World) {
 
     let build_channel_callback = world.register_system(build_channel_callback);
     let client = world.resource::<Client>();
+    let _ = client.connect();
     client.channel(build_channel_callback).unwrap();
 
     let get_presence_state_callback = world.register_system(get_presence_state_callback);

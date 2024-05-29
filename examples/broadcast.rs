@@ -20,31 +20,37 @@ fn main() {
         .add_systems(Startup, (setup,))
         .add_systems(
             Update,
-            (((send_every_second, test_get_channel_state)
-                .run_if(on_timer(Duration::from_secs(1))),)
-                .chain()
-                .run_if(client_ready),),
+            (
+                (((send_every_second, test_get_channel_state)
+                    .run_if(on_timer(Duration::from_secs(1))),)
+                    .chain()
+                    .run_if(client_ready),),
+                // Delayed connection
+                connect
+                    .run_if(on_timer(Duration::from_secs(3)))
+                    .run_if(not(client_ready)),
+            ),
         );
 
     app.run()
 }
 
 fn setup(world: &mut World) {
-    println!("setup s1 ");
+    debug!("setup s1 ");
 
     world.spawn(Camera2dBundle::default());
 
-    let callback = world.register_system(build_channel_callback);
+    let build_channel_callback = world.register_system(build_channel_callback);
     let client = world.resource::<Client>();
 
-    client.channel(callback).unwrap();
+    client.channel(build_channel_callback).unwrap();
 
     let test_callback = world.register_system(get_channel_state);
     world.insert_resource(TestCallback(test_callback));
     let bc_cb = world.register_system(broadcast_callback);
     world.insert_resource(MyBroadcastCallback(bc_cb));
 
-    println!("setup s1 finished");
+    debug!("setup s1 finished");
 }
 
 #[derive(Resource)]
@@ -53,35 +59,35 @@ struct MyBroadcastCallback(pub SystemId<HashMap<String, Value>>);
 fn build_channel_callback(
     mut channel_builder: In<ChannelBuilder>,
     mut commands: Commands,
-    bc_cb: Res<MyBroadcastCallback>,
+    broadcast_callback: Res<MyBroadcastCallback>,
 ) {
-    println!("channel setup s2 ");
+    debug!("channel setup s2 ");
     channel_builder
         .topic("test")
         .set_broadcast_config(BroadcastConfig {
             broadcast_self: true,
             ack: false,
         })
-        .on_broadcast("test", bc_cb.0);
+        .on_broadcast("test", broadcast_callback.0);
 
     let mut c = commands.spawn(BevyChannelBuilder(channel_builder.0));
 
     c.insert(BuildChannel);
-    println!("channel setup s2 finished");
+    debug!("channel setup s2 finished");
 }
 
 #[derive(Resource, Deref)]
 struct TestCallback(pub SystemId<ChannelState>);
 
 fn test_get_channel_state(channel: Query<&Channel>, callback: Res<TestCallback>) {
-    println!("Get state...");
+    debug!("Get state...");
     for c in channel.iter() {
         c.channel_state(**callback).unwrap();
     }
 }
 
 fn get_channel_state(state: In<ChannelState>) {
-    println!("State got! {:?}", *state);
+    info!("State got! {:?}", *state);
 }
 
 fn send_every_second(q_channel: Query<&Channel>) {
@@ -98,5 +104,10 @@ fn send_every_second(q_channel: Query<&Channel>) {
 }
 
 fn broadcast_callback(recv: In<HashMap<String, Value>>) {
-    println!("GOT BC: {:?}", *recv);
+    info!("GOT BC: {:?}", *recv);
+}
+
+fn connect(client: Res<Client>) {
+    debug!("Doin connect!");
+    let _ = client.connect();
 }

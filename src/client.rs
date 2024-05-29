@@ -144,6 +144,7 @@ pub enum ClientManagerMessage {
     ConnectionState {
         sender: CrossbeamEventSender<ConnectionState>,
     },
+    Connect,
 }
 
 impl ClientManager {
@@ -153,13 +154,10 @@ impl ClientManager {
         }
     }
 
-    // TODO
-    // ClientManager should recieve request, and send a CrossbeamEventSender to the thread, which
-    // responds by sending the event back to the bevy world, readable by other systems
-    //
-    // These functions should take a oneshot SystemID to schedule when the data returns
-    //
-    // These functions need to queue their requests in case the client is not ready
+    pub fn connect(&self) -> Result<(), SendError<ClientManagerMessage>> {
+        self.tx.send(ClientManagerMessage::Connect)
+    }
+
     pub fn channel(
         &self,
         callback: SystemId<ChannelBuilder>,
@@ -227,11 +225,13 @@ pub struct Client {
 pub struct ChannelCallbackEvent(pub (SystemId<ChannelBuilder>, ChannelBuilder));
 
 impl Client {
-    fn manager_recv(&mut self) -> Result<(), Box<dyn Error>> {
+    pub fn manager_recv(&mut self) -> Result<(), Box<dyn Error>> {
         while let Ok(message) = self.manager_rx.try_recv() {
             match message {
                 ClientManagerMessage::Channel { callback } => {
                     let c = self.channel();
+
+                    debug!("got channel, sending to callback...");
 
                     self.channel_callback_event_sender
                         .send(ChannelCallbackEvent((callback, c)));
@@ -242,6 +242,9 @@ impl Client {
                 }
                 ClientManagerMessage::ConnectionState { sender } => {
                     sender.send(self.connection_state);
+                }
+                ClientManagerMessage::Connect => {
+                    let _ = self.connect();
                 }
             }
         }
@@ -266,6 +269,9 @@ impl Client {
     /// Attempt to create a websocket connection with the server
     pub fn connect(&mut self) -> Result<&mut Client, ConnectError> {
         info!("connecting...");
+        self.connection_state = ConnectionState::Connecting;
+
+        let _ = self.manager_recv();
 
         let uri: Uri = match format!(
             "{}/websocket?apikey={}&vsn=1.0.0",
@@ -354,14 +360,8 @@ impl Client {
                 stream
             }
             Err(_e) => {
-                if self.reconnect_attempts < self.reconnect_max_attempts {
-                    self.reconnect_attempts += 1;
-                    let backoff = self.reconnect_interval.0.as_ref();
-                    sleep(backoff(self.reconnect_attempts));
-                    return self.connect();
-                }
-                // TODO get reason from stream error
-                return Err(ConnectError::StreamError);
+                // TODO err data
+                return self.retry_connect();
             }
         };
 
@@ -400,28 +400,14 @@ impl Client {
             }
             Err(err) => match err {
                 HandshakeError::Failure(_err) => {
-                    // TODO DRY break reconnect attempts code into own fn
-                    if self.reconnect_attempts < self.reconnect_max_attempts {
-                        self.reconnect_attempts += 1;
-                        let backoff = &self.reconnect_interval.0;
-                        sleep(backoff(self.reconnect_attempts));
-                        return self.connect();
-                    }
-
-                    return Err(ConnectError::HandshakeError);
+                    // TODO err data
+                    return self.retry_connect();
                 }
                 HandshakeError::Interrupted(mid_hs) => match self.retry_handshake(mid_hs) {
                     Ok(stream) => Ok(stream),
                     Err(_err) => {
-                        if self.reconnect_attempts < self.reconnect_max_attempts {
-                            self.reconnect_attempts += 1;
-                            let backoff = &self.reconnect_interval.0;
-                            sleep(backoff(self.reconnect_attempts));
-                            return self.connect();
-                        }
-
                         // TODO err data
-                        return Err(ConnectError::MaxRetries);
+                        return self.retry_connect();
                     }
                 },
             },
@@ -439,6 +425,26 @@ impl Client {
         info!("connected");
 
         Ok(self)
+    }
+
+    fn retry_connect(&mut self) -> Result<&mut Client, ConnectError> {
+        debug!(
+            "Retry count {}/{}",
+            self.reconnect_attempts, self.reconnect_max_attempts
+        );
+        debug!(
+            "Waiting {}s...",
+            self.reconnect_interval.0(self.reconnect_attempts).as_secs()
+        );
+
+        if self.reconnect_attempts < self.reconnect_max_attempts {
+            self.reconnect_attempts += 1;
+            let backoff = &self.reconnect_interval.0;
+            sleep(backoff(self.reconnect_attempts));
+            return self.connect();
+        }
+
+        Err(ConnectError::MaxRetries)
     }
 
     /// Disconnect the client

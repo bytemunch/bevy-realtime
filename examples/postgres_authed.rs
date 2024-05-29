@@ -38,6 +38,7 @@ fn setup(world: &mut World) {
 
     let callback = world.register_system(build_channel_callback);
     let client = world.resource::<RealtimeClient>();
+    let _ = client.connect();
     client.channel(callback).unwrap();
 
     let on_change_callback = world.register_system(on_change_callback);

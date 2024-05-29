@@ -82,18 +82,25 @@ impl Plugin for RealtimePlugin {
             .add_crossbeam_event::<PostgresChangesCallbackEvent>()
             .add_systems(
                 Update,
-                ((
-                    //
-                    update_presence_track,
-                    presence_untrack,
-                    build_channels,
+                (
+                    ((
+                        //
+                        update_presence_track,
+                        presence_untrack,
+                        build_channels,
+                    )
+                        .chain()
+                        .run_if(client_ready),),
                     run_callbacks,
                 )
-                    .chain()
-                    .run_if(client_ready),),
+                    .chain(),
             );
 
-        let mut client = ClientBuilder::new(self.endpoint.clone(), self.apikey.clone()).build(
+        // TODO: Allow this to fail and be retried later at user request
+
+        let mut client = ClientBuilder::new(self.endpoint.clone(), self.apikey.clone());
+        client.reconnect_max_attempts(3);
+        let mut client = client.build(
             app.world
                 .resource::<CrossbeamEventSender<ChannelCallbackEvent>>()
                 .clone(),
@@ -102,13 +109,12 @@ impl Plugin for RealtimePlugin {
         app.insert_resource(Client(ClientManager::new(&client)));
 
         // Start off thread client
-        std::thread::spawn(move || {
-            client.connect().unwrap();
+        let _thread = std::thread::spawn(move || {
             loop {
                 match client.next_message() {
                     Err(NextMessageError::WouldBlock) => {}
                     Ok(_) => {}
-                    Err(e) => println!("{}", e),
+                    Err(_e) => {} //error!("{}", _e),
                 }
 
                 // TODO find a sane sleep value
