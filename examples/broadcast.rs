@@ -21,10 +21,12 @@ fn main() {
         .add_systems(
             Update,
             (
-                (((send_every_second, test_get_channel_state)
-                    .run_if(on_timer(Duration::from_secs(1))),)
-                    .chain()
-                    .run_if(client_ready),),
+                (
+                    ((send_every_second, get_channel_state)
+                        .run_if(on_timer(Duration::from_secs(1))),)
+                        .chain()
+                        .run_if(client_ready),
+                ),
                 // Delayed connection
                 connect
                     .run_if(on_timer(Duration::from_secs(3)))
@@ -36,7 +38,7 @@ fn main() {
 }
 
 fn setup(world: &mut World) {
-    debug!("setup s1 ");
+    info!("setup s1 ");
 
     world.spawn(Camera2dBundle::default());
 
@@ -45,10 +47,10 @@ fn setup(world: &mut World) {
 
     client.channel(build_channel_callback).unwrap();
 
-    let test_callback = world.register_system(get_channel_state);
-    world.insert_resource(TestCallback(test_callback));
-    let bc_cb = world.register_system(broadcast_callback);
-    world.insert_resource(MyBroadcastCallback(bc_cb));
+    let test_callback = world.register_system(channel_state_callback);
+    world.insert_resource(ChannelStateCallback(test_callback));
+    let broadcast_callback = world.register_system(broadcast_callback);
+    world.insert_resource(MyBroadcastCallback(broadcast_callback));
 
     debug!("setup s1 finished");
 }
@@ -61,7 +63,7 @@ fn build_channel_callback(
     mut commands: Commands,
     broadcast_callback: Res<MyBroadcastCallback>,
 ) {
-    debug!("channel setup s2 ");
+    info!("channel setup s2 ");
     channel_builder
         .topic("test")
         .set_broadcast_config(BroadcastConfig {
@@ -77,16 +79,16 @@ fn build_channel_callback(
 }
 
 #[derive(Resource, Deref)]
-struct TestCallback(pub SystemId<ChannelState>);
+struct ChannelStateCallback(pub SystemId<ChannelState>);
 
-fn test_get_channel_state(channel: Query<&Channel>, callback: Res<TestCallback>) {
+fn get_channel_state(channel: Query<&Channel>, callback: Res<ChannelStateCallback>) {
     debug!("Get state...");
     for c in channel.iter() {
         c.channel_state(**callback).unwrap();
     }
 }
 
-fn get_channel_state(state: In<ChannelState>) {
+fn channel_state_callback(state: In<ChannelState>) {
     info!("State got! {:?}", *state);
 }
 
@@ -108,6 +110,5 @@ fn broadcast_callback(recv: In<HashMap<String, Value>>) {
 }
 
 fn connect(client: Res<Client>) {
-    debug!("Doin connect!");
     let _ = client.connect();
 }
