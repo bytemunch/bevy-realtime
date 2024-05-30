@@ -92,7 +92,7 @@ pub enum SocketError {
 }
 
 /// Error returned by [RealtimeClient::connect()]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum ConnectError {
     BadUri,
     BadHost,
@@ -144,7 +144,9 @@ pub enum ClientManagerMessage {
     ConnectionState {
         sender: CrossbeamEventSender<ConnectionState>,
     },
-    Connect,
+    Connect {
+        callback: SystemId<Result<(), ConnectError>>,
+    },
 }
 
 impl ClientManager {
@@ -154,8 +156,11 @@ impl ClientManager {
         }
     }
 
-    pub fn connect(&self) -> Result<(), SendError<ClientManagerMessage>> {
-        self.tx.send(ClientManagerMessage::Connect)
+    pub fn connect(
+        &self,
+        callback: SystemId<Result<(), ConnectError>>,
+    ) -> Result<(), SendError<ClientManagerMessage>> {
+        self.tx.send(ClientManagerMessage::Connect { callback })
     }
 
     pub fn channel(
@@ -219,10 +224,16 @@ pub struct Client {
     manager_rx: Receiver<ClientManagerMessage>,
     manager_tx: Sender<ClientManagerMessage>,
     channel_callback_event_sender: CrossbeamEventSender<ChannelCallbackEvent>,
+    connect_result_callback_event_sender: CrossbeamEventSender<ConnectResultCallbackEvent>,
 }
 
 #[derive(Event, Clone)]
 pub struct ChannelCallbackEvent(pub (SystemId<ChannelBuilder>, ChannelBuilder));
+
+#[derive(Event, Clone)]
+pub struct ConnectResultCallbackEvent(
+    pub (SystemId<Result<(), ConnectError>>, Result<(), ConnectError>),
+);
 
 impl Client {
     pub fn manager_recv(&mut self) -> Result<(), Box<dyn Error>> {
@@ -243,8 +254,10 @@ impl Client {
                 ClientManagerMessage::ConnectionState { sender } => {
                     sender.send(self.connection_state);
                 }
-                ClientManagerMessage::Connect => {
-                    let _ = self.connect();
+                ClientManagerMessage::Connect { callback } => {
+                    let result = self.connect();
+                    self.connect_result_callback_event_sender
+                        .send(ConnectResultCallbackEvent((callback, result)))
                 }
             }
         }
@@ -267,7 +280,7 @@ impl Client {
     }
 
     /// Attempt to create a websocket connection with the server
-    pub fn connect(&mut self) -> Result<&mut Client, ConnectError> {
+    pub fn connect(&mut self) -> Result<(), ConnectError> {
         info!("connecting...");
         self.connection_state = ConnectionState::Connecting;
 
@@ -424,10 +437,10 @@ impl Client {
         self.connection_state = ConnectionState::Open;
         info!("connected");
 
-        Ok(self)
+        Ok(())
     }
 
-    fn retry_connect(&mut self) -> Result<&mut Client, ConnectError> {
+    fn retry_connect(&mut self) -> Result<(), ConnectError> {
         debug!(
             "Retry count {}/{}",
             self.reconnect_attempts, self.reconnect_max_attempts
@@ -1093,6 +1106,7 @@ impl ClientBuilder {
     pub fn build(
         self,
         channel_callback_event_sender: CrossbeamEventSender<ChannelCallbackEvent>,
+        connect_result_callback_event_sender: CrossbeamEventSender<ConnectResultCallbackEvent>,
     ) -> Client {
         let (manager_tx, manager_rx) = unbounded();
         Client {
@@ -1124,6 +1138,7 @@ impl ClientBuilder {
             manager_rx,
             manager_tx,
             channel_callback_event_sender,
+            connect_result_callback_event_sender,
         }
     }
 }

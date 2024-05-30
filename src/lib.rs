@@ -15,7 +15,8 @@ use channel::{
     PostgresChangesCallbackEvent, PresenceStateCallbackEvent,
 };
 use client::{
-    ChannelCallbackEvent, ClientBuilder, ClientManager, ConnectionState, NextMessageError,
+    ChannelCallbackEvent, ClientBuilder, ClientManager, ConnectResultCallbackEvent,
+    ConnectionState, NextMessageError,
 };
 use presence::PresenceCallbackEvent;
 
@@ -80,6 +81,7 @@ impl Plugin for RealtimePlugin {
             .add_crossbeam_event::<BroadcastCallbackEvent>()
             .add_crossbeam_event::<PresenceCallbackEvent>()
             .add_crossbeam_event::<PostgresChangesCallbackEvent>()
+            .add_crossbeam_event::<ConnectResultCallbackEvent>()
             .add_systems(
                 Update,
                 (
@@ -103,6 +105,9 @@ impl Plugin for RealtimePlugin {
         let mut client = client.build(
             app.world
                 .resource::<CrossbeamEventSender<ChannelCallbackEvent>>()
+                .clone(),
+            app.world
+                .resource::<CrossbeamEventSender<ConnectResultCallbackEvent>>()
                 .clone(),
         );
 
@@ -132,6 +137,7 @@ fn run_callbacks(
     mut broadcast_evr: EventReader<BroadcastCallbackEvent>,
     mut presence_evr: EventReader<PresenceCallbackEvent>,
     mut postgres_evr: EventReader<PostgresChangesCallbackEvent>,
+    mut connect_evr: EventReader<ConnectResultCallbackEvent>,
 ) {
     // TODO this is crying out for a macro lol
     for ev in channel_evr.read() {
@@ -160,6 +166,11 @@ fn run_callbacks(
     }
 
     for ev in postgres_evr.read() {
+        let (callback, input) = ev.0.clone();
+        commands.run_system_with_input(callback, input);
+    }
+
+    for ev in connect_evr.read() {
         let (callback, input) = ev.0.clone();
         commands.run_system_with_input(callback, input);
     }

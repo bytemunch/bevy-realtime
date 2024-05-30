@@ -3,6 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use bevy::{ecs::system::SystemId, prelude::*, time::common_conditions::on_timer};
 use bevy_realtime::{
     channel::ChannelBuilder,
+    client::ConnectError,
     message::payload::PresenceConfig,
     presence::{PrescenceTrack, PresenceEvent, PresenceState},
     BevyChannelBuilder, BuildChannel, Channel, Client, RealtimePlugin,
@@ -35,8 +36,10 @@ fn setup(world: &mut World) {
     world.spawn(Camera2dBundle::default());
 
     let build_channel_callback = world.register_system(build_channel_callback);
+    let connect_callback = world.register_system(connect_callback);
+
     let client = world.resource::<Client>();
-    let _ = client.connect();
+    let _ = client.connect(connect_callback);
     client.channel(build_channel_callback).unwrap();
 
     let get_presence_state_callback = world.register_system(get_presence_state_callback);
@@ -81,4 +84,15 @@ fn get_presence_state_callback(state: In<PresenceState>) {
 
 fn presence_join_callback(In((id, state, joins)): In<(String, PresenceState, PresenceState)>) {
     println!("{}|{:?}|{:?}", id, state, joins);
+}
+
+fn connect_callback(In(result): In<Result<(), ConnectError>>) {
+    match result {
+        Ok(()) => {
+            info!("Connection is live!");
+        }
+        Err(e) => {
+            error!("Connection failed! {:?}", e);
+        }
+    }
 }
