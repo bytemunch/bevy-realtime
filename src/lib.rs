@@ -103,10 +103,10 @@ impl Plugin for RealtimePlugin {
         let mut client = ClientBuilder::new(self.endpoint.clone(), self.apikey.clone());
         client.reconnect_max_attempts(3);
         let mut client = client.build(
-            app.world
+            app.world_mut()
                 .resource::<CrossbeamEventSender<ChannelCallbackEvent>>()
                 .clone(),
-            app.world
+            app.world_mut()
                 .resource::<CrossbeamEventSender<ConnectResultCallbackEvent>>()
                 .clone(),
         );
