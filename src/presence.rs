@@ -21,12 +21,12 @@ pub enum PresenceEvent {
 pub type RawPresenceState = HashMap<String, RawPresenceMetas>;
 
 #[derive(Clone)]
-pub(crate) struct PresenceCallback(pub SystemId<(String, PresenceState, PresenceState)>);
+pub(crate) struct PresenceCallback(pub SystemId<In<(String, PresenceState, PresenceState)>>);
 
 #[derive(Event, Clone)]
 pub struct PresenceCallbackEvent(
     pub  (
-        SystemId<(String, PresenceState, PresenceState)>,
+        SystemId<In<(String, PresenceState, PresenceState)>>,
         (String, PresenceState, PresenceState),
     ),
 );

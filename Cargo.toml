@@ -11,18 +11,19 @@ readme = "README.md"
 documentation = "https://docs.rs/bevy-supabase-realtime"
 
 [dependencies]
-bevy = "0.14.2"
-bevy_crossbeam_event = "0.6.0"
+bevy = "0.15"
+bevy_crossbeam_event = "0.7.0"
 crossbeam = { version = "0.8.4", features = [
   "crossbeam-channel",
   "crossbeam-deque",
 ] }
 native-tls = "0.2.12"
-serde = "1.0.210"
-serde_json = "1.0.128"
-tungstenite = { version = "0.24.0", features = ["native-tls"] }
-uuid = { version = "1.10.0", features = ["v4"] }
+serde = "1.0.216"
+serde_json = "1.0.134"
+tungstenite = { version = "0.26.1", features = ["native-tls"] }
+uuid = { version = "1.11.0", features = ["v4"] }
 
 [dev-dependencies]
-bevy-gotrue = { git = "https://github.com/bytemunch/bevy-gotrue/" }
-bevy_http_client = "0.6.0"
+bevy-gotrue = { git = "https://github.com/bas-ie/bevy-gotrue/", branch = "0.15" }
+bevy_http_client = "0.7.0"
+postgres = "0.19.9"

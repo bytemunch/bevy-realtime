@@ -1,6 +1,7 @@
 use bevy::{
     ecs::{event::Event, system::SystemId},
     log::debug,
+    prelude::In,
 };
 use bevy_crossbeam_event::CrossbeamEventSender;
 use crossbeam::channel::{unbounded, Receiver, SendError, Sender};
@@ -27,17 +28,19 @@ use std::fmt::Debug;
 use std::{collections::HashMap, error::Error};
 
 #[derive(Clone)]
-struct BroadcastCallback(SystemId<HashMap<String, Value>>);
+struct BroadcastCallback(SystemId<In<HashMap<String, Value>>>);
 
 #[derive(Event, Clone)]
-pub struct BroadcastCallbackEvent(pub (SystemId<HashMap<String, Value>>, HashMap<String, Value>));
+pub struct BroadcastCallbackEvent(
+    pub (SystemId<In<HashMap<String, Value>>>, HashMap<String, Value>),
+);
 
 #[derive(Clone)]
-struct PostgresChangesCallback(PostgresChangeFilter, SystemId<PostgresChangesPayload>);
+struct PostgresChangesCallback(PostgresChangeFilter, SystemId<In<PostgresChangesPayload>>);
 
 #[derive(Event, Clone)]
 pub struct PostgresChangesCallbackEvent(
-    pub (SystemId<PostgresChangesPayload>, PostgresChangesPayload),
+    pub (SystemId<In<PostgresChangesPayload>>, PostgresChangesPayload),
 );
 
 /// Channel states
@@ -56,12 +59,20 @@ pub struct ChannelManager {
 }
 
 pub enum ChannelManagerMessage {
-    Broadcast { payload: BroadcastPayload },
+    Broadcast {
+        payload: BroadcastPayload,
+    },
     Subscribe,
-    Track { payload: HashMap<String, Value> },
+    Track {
+        payload: HashMap<String, Value>,
+    },
     Untrack,
-    PresenceState { callback: SystemId<PresenceState> },
-    ChannelState { callback: SystemId<ChannelState> },
+    PresenceState {
+        callback: SystemId<In<PresenceState>>,
+    },
+    ChannelState {
+        callback: SystemId<In<ChannelState>>,
+    },
 }
 
 impl ChannelManager {
@@ -89,7 +100,7 @@ impl ChannelManager {
 
     pub fn presence_state(
         &self,
-        callback: SystemId<PresenceState>,
+        callback: SystemId<In<PresenceState>>,
     ) -> Result<(), SendError<ChannelManagerMessage>> {
         self.tx
             .send(ChannelManagerMessage::PresenceState { callback })
@@ -97,7 +108,7 @@ impl ChannelManager {
 
     pub fn channel_state(
         &self,
-        callback: SystemId<ChannelState>,
+        callback: SystemId<In<ChannelState>>,
     ) -> Result<(), SendError<ChannelManagerMessage>> {
         self.tx
             .send(ChannelManagerMessage::ChannelState { callback })
@@ -105,10 +116,10 @@ impl ChannelManager {
 }
 
 #[derive(Event, Clone)]
-pub struct PresenceStateCallbackEvent(pub (SystemId<PresenceState>, PresenceState));
+pub struct PresenceStateCallbackEvent(pub (SystemId<In<PresenceState>>, PresenceState));
 
 #[derive(Event, Clone)]
-pub struct ChannelStateCallbackEvent(pub (SystemId<ChannelState>, ChannelState));
+pub struct ChannelStateCallbackEvent(pub (SystemId<In<ChannelState>>, ChannelState));
 
 /// Channel structure
 pub struct RealtimeChannel {
@@ -408,7 +419,7 @@ impl ChannelBuilder {
         &mut self,
         event: PostgresChangesEvent,
         filter: PostgresChangeFilter,
-        callback: SystemId<PostgresChangesPayload>,
+        callback: SystemId<In<PostgresChangesPayload>>,
     ) -> &mut Self {
         self.postgres_changes.push(PostgresChange {
             event: event.clone(),
@@ -434,7 +445,7 @@ impl ChannelBuilder {
     pub fn on_presence(
         &mut self,
         event: PresenceEvent,
-        callback: SystemId<(String, PresenceState, PresenceState)>,
+        callback: SystemId<In<(String, PresenceState, PresenceState)>>,
     ) -> &mut Self {
         if self.presence_callbacks.get_mut(&event).is_none() {
             self.presence_callbacks.insert(event.clone(), vec![]);
@@ -452,7 +463,7 @@ impl ChannelBuilder {
     pub fn on_broadcast(
         &mut self,
         event: impl Into<String>,
-        callback: SystemId<HashMap<String, Value>>,
+        callback: SystemId<In<HashMap<String, Value>>>,
     ) -> &mut Self {
         let event: String = event.into();
 

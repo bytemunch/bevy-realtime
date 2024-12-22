@@ -27,7 +27,7 @@ impl RealtimeMessage {
 impl From<RealtimeMessage> for Message {
     fn from(val: RealtimeMessage) -> Self {
         let data = serde_json::to_string(&val).expect("Uhoh cannot into message");
-        Message::Text(data)
+        Message::Text(data.into())
     }
 }
 

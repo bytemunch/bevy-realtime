@@ -10,7 +10,7 @@ use bevy_realtime::{
 };
 
 #[derive(Resource, Deref)]
-struct OnChangeCallback(pub SystemId<PostgresChangesPayload>);
+struct OnChangeCallback(pub SystemId<In<PostgresChangesPayload>>);
 
 fn main() {
     let mut app = App::new();
@@ -22,11 +22,11 @@ fn main() {
         ),))
         .add_systems(Startup, (setup,));
 
-    app.run()
+    app.run();
 }
 
 fn setup(world: &mut World) {
-    world.spawn(Camera2dBundle::default());
+    world.spawn(Camera2d);
     let connect_callback = world.register_system(connect_callback);
     let build_channel_callback = world.register_system(build_channel_callback);
 

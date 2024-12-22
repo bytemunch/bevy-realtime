@@ -133,7 +133,7 @@ pub struct ClientManager {
 
 pub enum ClientManagerMessage {
     Channel {
-        callback: SystemId<ChannelBuilder>,
+        callback: SystemId<In<ChannelBuilder>>,
     },
     AddChannel {
         channel: RealtimeChannel,
@@ -145,7 +145,7 @@ pub enum ClientManagerMessage {
         sender: CrossbeamEventSender<ConnectionState>,
     },
     Connect {
-        callback: SystemId<Result<(), ConnectError>>,
+        callback: SystemId<In<Result<(), ConnectError>>>,
     },
 }
 
@@ -158,14 +158,14 @@ impl ClientManager {
 
     pub fn connect(
         &self,
-        callback: SystemId<Result<(), ConnectError>>,
+        callback: SystemId<In<Result<(), ConnectError>>>,
     ) -> Result<(), SendError<ClientManagerMessage>> {
         self.tx.send(ClientManagerMessage::Connect { callback })
     }
 
     pub fn channel(
         &self,
-        callback: SystemId<ChannelBuilder>,
+        callback: SystemId<In<ChannelBuilder>>,
     ) -> Result<(), SendError<ClientManagerMessage>> {
         self.tx.send(ClientManagerMessage::Channel { callback })
     }
@@ -228,11 +228,14 @@ pub struct Client {
 }
 
 #[derive(Event, Clone)]
-pub struct ChannelCallbackEvent(pub (SystemId<ChannelBuilder>, ChannelBuilder));
+pub struct ChannelCallbackEvent(pub (SystemId<In<ChannelBuilder>>, ChannelBuilder));
 
 #[derive(Event, Clone)]
 pub struct ConnectResultCallbackEvent(
-    pub (SystemId<Result<(), ConnectError>>, Result<(), ConnectError>),
+    pub  (
+        SystemId<In<Result<(), ConnectError>>>,
+        Result<(), ConnectError>,
+    ),
 );
 
 impl Client {

@@ -10,10 +10,10 @@ use bevy_realtime::{
 };
 
 #[derive(Resource, Deref)]
-struct PresenceJoinCallback(SystemId<(String, PresenceState, PresenceState)>);
+struct PresenceJoinCallback(SystemId<In<(String, PresenceState, PresenceState)>>);
 
 #[derive(Resource, Deref)]
-struct PresenceStateCallback(pub SystemId<PresenceState>);
+struct PresenceStateCallback(pub SystemId<In<PresenceState>>);
 
 fn main() {
     let mut app = App::new();
@@ -29,11 +29,11 @@ fn main() {
             (get_presence_state.run_if(on_timer(Duration::from_secs(1))),),
         );
 
-    app.run()
+    app.run();
 }
 
 fn setup(world: &mut World) {
-    world.spawn(Camera2dBundle::default());
+    world.spawn(Camera2d);
 
     let build_channel_callback = world.register_system(build_channel_callback);
     let connect_callback = world.register_system(connect_callback);

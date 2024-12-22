@@ -11,13 +11,13 @@ use bevy_realtime::{
 use serde_json::Value;
 
 #[derive(Resource)]
-struct MyBroadcastCallback(pub SystemId<HashMap<String, Value>>);
+struct MyBroadcastCallback(pub SystemId<In<HashMap<String, Value>>>);
 
 #[derive(Resource)]
-struct ConnectCallback(pub SystemId<Result<(), ConnectError>>);
+struct ConnectCallback(pub SystemId<In<Result<(), ConnectError>>>);
 
 #[derive(Resource, Deref)]
-struct ChannelStateCallback(pub SystemId<ChannelState>);
+struct ChannelStateCallback(pub SystemId<In<ChannelState>>);
 
 fn main() {
     let mut app = App::new();
@@ -44,13 +44,13 @@ fn main() {
             ),
         );
 
-    app.run()
+    app.run();
 }
 
 fn setup(world: &mut World) {
     info!("setup s1 ");
 
-    world.spawn(Camera2dBundle::default());
+    world.spawn(Camera2d);
 
     let build_channel_callback = world.register_system(build_channel_callback);
     let client = world.resource::<Client>();
